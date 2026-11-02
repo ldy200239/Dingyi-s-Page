@@ -421,10 +421,16 @@
       attractTimer = setTimeout(() => runAttract(step + 1), i === -1 ? 5200 : 3400);
     }
 
-    let lastType = "mouse", downAt = 0;
+    let lastType = "mouse", downAt = 0, hoverT = null;
     btns.forEach((b, i) => {
       b.addEventListener("pointerdown", (e) => { lastType = e.pointerType; downAt = performance.now(); });
-      b.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") choose(i, true); });
+      // a short hover intent, so sweeping across the bar only morphs to where the pointer stops
+      b.addEventListener("pointerenter", (e) => {
+        if (e.pointerType !== "mouse") return;
+        clearTimeout(hoverT);
+        hoverT = setTimeout(() => choose(i, true), 70);
+      });
+      b.addEventListener("pointerleave", () => clearTimeout(hoverT));
       b.addEventListener("focus", () => { if (performance.now() - downAt > 600) choose(i, true); });
       b.addEventListener("click", () => {
         if (lastType !== "mouse" && current !== i) { choose(i, true); return; }
@@ -472,8 +478,8 @@
         field.resize();
         field.showText();
         field.start();
-        // preload the stage images so the first morph is instant
-        P.forEach((p) => field.loadImage(p.pixel));
+        // decode and sample every stage image ahead of time, during idle moments
+        field.preload(P.map((p) => p.pixel));
         if (attract) attractTimer = setTimeout(() => runAttract(1), 5600);
       });
     }

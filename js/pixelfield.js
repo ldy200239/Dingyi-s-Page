@@ -113,8 +113,20 @@
         this.sx[i] = Math.cos(a) * r * w * 0.6;
         this.sy[i] = Math.sin(a) * r * h * 0.6 - h * 0.25 * Math.random();
       }
+      // grid cell centres, reused by every image
+      this.gx = new Float32Array(n); this.gy = new Float32Array(n);
+      for (let i = 0; i < n; i++) { this.gx[i] = (i % this.cols) * cell + cell / 2; this.gy[i] = ((i / this.cols) | 0) * cell + cell / 2; }
+      // GPU buffers are allocated once per size and updated in place every frame
+      const gl = this.gl;
       this.posOut = new Float32Array(n * 2);
-      this.colOut = new Float32Array(n * 4);
+      this.colOut = new Uint8ClampedArray(n * 4);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, this.posOut.byteLength, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.colBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, this.colOut.byteLength, gl.DYNAMIC_DRAW);
+      // sampled images depend on the grid size
+      const key = this.cols + "x" + this.rows;
+      if (this.gridKey !== key) { this.gridKey = key; this.prepared = new Map(); }
       if (this.layout) this.relayout();
     }
 
@@ -213,35 +225,84 @@
       return p;
     }
 
+    /* Decode and downscale an image to one colour per grid cell.
+       Runs off the main thread where the browser supports it, and is cached,
+       so switching stages never blocks a frame. */
+    async sample(src, cols, rows) {
+      const read = (source) => {
+        const cv = document.createElement("canvas");
+        cv.width = cols; cv.height = rows;
+        const ctx = cv.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(source, 0, 0);
+        return ctx.getImageData(0, 0, cols, rows).data;
+      };
+      try {
+        if (!window.createImageBitmap || location.protocol === "file:") throw new Error("fallback");
+        const blob = await (await fetch(src)).blob();
+        const full = await createImageBitmap(blob);
+        const s = Math.max(cols / full.width, rows / full.height);
+        const sw = cols / s, sh = rows / s;
+        const small = await createImageBitmap(full, (full.width - sw) / 2, (full.height - sh) / 2, sw, sh,
+          { resizeWidth: cols, resizeHeight: rows, resizeQuality: "high" });
+        full.close();
+        const data = read(small);
+        small.close();
+        return data;
+      } catch (e) {
+        const img = await this.loadImage(src);
+        try { await img.decode(); } catch (err) {}
+        const cv = document.createElement("canvas");
+        cv.width = cols; cv.height = rows;
+        const ctx = cv.getContext("2d", { willReadFrequently: true });
+        const s = Math.max(cols / img.width, rows / img.height);
+        const dw = img.width * s, dh = img.height * s;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
+        return ctx.getImageData(0, 0, cols, rows).data;
+      }
+    }
+
+    prepare(src) {
+      if (this.prepared.has(src)) return this.prepared.get(src);
+      const { cols, rows } = this;
+      const p = this.sample(src, cols, rows).then((data) => {
+        const out = new Float32Array(cols * rows * 4);
+        for (let r = 0; r < rows; r++) {
+          // slight dimming toward the bottom keeps the interface readable
+          const shade = (0.92 - Math.max(0, r / rows - 0.55) * 0.9) / 255;
+          for (let c = 0; c < cols; c++) {
+            const o = (r * cols + c) * 4;
+            out[o] = data[o] * shade; out[o + 1] = data[o + 1] * shade; out[o + 2] = data[o + 2] * shade; out[o + 3] = 1;
+          }
+        }
+        return out;
+      });
+      p.catch(() => this.prepared.delete(src));
+      this.prepared.set(src, p);
+      return p;
+    }
+
+    /* Prepare several images one at a time during idle moments. */
+    preload(srcs) {
+      const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 120));
+      let chain = Promise.resolve();
+      srcs.forEach((s) => { chain = chain.then(() => new Promise((r) => idle(r))).then(() => this.prepare(s)).catch(() => {}); });
+      return chain;
+    }
+
     async showImage(src, instant) {
       this.mode = "image";
       this.current = src;
-      let img;
-      try { img = await this.loadImage(src); } catch (e) { return; }
-      if (this.current !== src) return;
-      const { cols, rows, cell, n } = this;
-      const cv = document.createElement("canvas");
-      cv.width = cols; cv.height = rows;
-      const ctx = cv.getContext("2d", { willReadFrequently: true });
-      // cover fit
-      const s = Math.max(cols / img.width, rows / img.height);
-      const dw = img.width * s, dh = img.height * s;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
-      const data = ctx.getImageData(0, 0, cols, rows).data;
+      let data;
+      try { data = await this.prepare(src); } catch (e) { return; }
+      if (this.current !== src || this.mode !== "image") return;
+      const { cols, rows, n } = this;
+      if (data.length !== n * 4) { this.prepared.delete(src); return this.showImage(src, instant); }
+      this.ptx.set(this.gx); this.pty.set(this.gy); this.ptc.set(data);
       const now = performance.now();
+      const seed = this.seed, sw = this.switchAt;
       for (let i = 0; i < n; i++) {
-        const c = i % cols, r = (i / cols) | 0;
-        this.ptx[i] = c * cell + cell / 2;
-        this.pty[i] = r * cell + cell / 2;
-        const o = i * 4;
-        // slight dimming toward the bottom keeps the interface readable
-        const shade = 0.92 - Math.max(0, (r / rows) - 0.55) * 0.9;
-        this.ptc[o] = (data[o] / 255) * shade;
-        this.ptc[o + 1] = (data[o + 1] / 255) * shade;
-        this.ptc[o + 2] = (data[o + 2] / 255) * shade;
-        this.ptc[o + 3] = 1;
-        this.switchAt[i] = now + (instant ? 0 : (c / cols) * 520 + this.seed[i] * 220 + (r / rows) * 80);
+        sw[i] = instant ? 0 : now + ((i % cols) / cols) * 520 + seed[i] * 220 + (((i / cols) | 0) / rows) * 80;
         if (instant) this.commit(i);
       }
     }
@@ -327,20 +388,20 @@
         const o = i * 4;
         let a = c[o + 3] * (1 - s * 0.85);
         if (flicker && seed[i] < 0.11) a *= 0.75 + 0.25 * Math.sin(t * 3 + seed[i] * 60);
-        colOut[o] = c[o]; colOut[o + 1] = c[o + 1]; colOut[o + 2] = c[o + 2]; colOut[o + 3] = a;
+        colOut[o] = c[o] * 255; colOut[o + 1] = c[o + 1] * 255; colOut[o + 2] = c[o + 2] * 255; colOut[o + 3] = a * 255;
       }
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(this.loc.res, this.w, this.h);
       gl.uniform1f(this.loc.size, Math.max(1, (this.cell - (this.cell > 7 ? 1.5 : 1)) * this.dpr));
       gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, posOut, gl.DYNAMIC_DRAW);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, posOut);
       gl.enableVertexAttribArray(this.loc.pos);
       gl.vertexAttribPointer(this.loc.pos, 2, gl.FLOAT, false, 0, 0);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.colBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, colOut, gl.DYNAMIC_DRAW);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, colOut);
       gl.enableVertexAttribArray(this.loc.col);
-      gl.vertexAttribPointer(this.loc.col, 4, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(this.loc.col, 4, gl.UNSIGNED_BYTE, true, 0, 0);
       gl.drawArrays(gl.POINTS, 0, n);
     }
 
