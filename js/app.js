@@ -34,22 +34,6 @@
     mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>'
   };
 
-  /* ---------- sound (off by default) ---------- */
-  let actx = null;
-  let sfxOn = store.get("dl-sfx") === "1";
-  function blip(freq = 660, dur = 0.05, type = "square", vol = 0.04) {
-    if (!sfxOn) return;
-    try {
-      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.type = type; o.frequency.value = freq;
-      g.gain.setValueAtTime(vol, actx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
-      o.connect(g).connect(actx.destination);
-      o.start(); o.stop(actx.currentTime + dur + 0.02);
-    } catch (e) {}
-  }
-
   /* ---------- smooth scroll ---------- */
   gsap.registerPlugin(ScrollTrigger);
   let lenis = null;
@@ -65,15 +49,7 @@
   /* ---------- header ---------- */
   const hud = $(".hud");
   addEventListener("scroll", () => hud.style.setProperty("--hud-bg", scrollY > 40 ? 1 : 0.7), { passive: true });
-  $(".lang").addEventListener("click", () => { setLang(lang() === "en" ? "zh" : "en"); blip(520); });
-  const sfxBtn = $(".sfx");
-  sfxBtn.setAttribute("aria-pressed", String(sfxOn));
-  sfxBtn.addEventListener("click", () => {
-    sfxOn = !sfxOn;
-    store.set("dl-sfx", sfxOn ? "1" : "0");
-    sfxBtn.setAttribute("aria-pressed", String(sfxOn));
-    blip(880, 0.08);
-  });
+  $(".lang").addEventListener("click", () => setLang(lang() === "en" ? "zh" : "en"));
 
   /* ---------- cursor ---------- */
   const cursor = $(".cursor");
@@ -160,7 +136,6 @@
     lb.setAttribute("aria-hidden", "false");
     lenis && lenis.stop();
     $(".lightbox__close", lb).focus();
-    blip(740, 0.06);
   }
   function closeLightbox() {
     if (!lb.classList.contains("open")) return;
@@ -170,7 +145,7 @@
     lenis && lenis.start();
     lbReturn && lbReturn.focus && lbReturn.focus();
   }
-  const lbStep = (d) => { lbIndex = (lbIndex + d + lbItems.length) % lbItems.length; lbRender(); blip(600, 0.04); };
+  const lbStep = (d) => { lbIndex = (lbIndex + d + lbItems.length) % lbItems.length; lbRender(); };
   $(".lightbox__close", lb).addEventListener("click", closeLightbox);
   $(".lb-prev", lb).addEventListener("click", () => lbStep(-1));
   $(".lb-next", lb).addEventListener("click", () => lbStep(1));
@@ -353,7 +328,6 @@
     $("[data-copy]").addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(S.email); note.innerHTML = t({ en: "Copied", zh: "已复制" }); }
       catch (e) { note.innerHTML = t({ en: "Copy failed. Select the address above instead.", zh: "复制失败，请手动选择上面的地址。" }); }
-      blip(990, 0.07);
       setTimeout(() => (note.innerHTML = ""), 2400);
     });
 
@@ -404,10 +378,8 @@
       nowH.textContent = p.title;
       nowP.innerHTML = t(p.line);
       field && field.showImage(p.pixel);
-      if (user) blip(520 + i * 90, 0.05);
     }
     function open(i) {
-      blip(880, 0.06); setTimeout(() => blip(1320, 0.08), 70);
       location.hash = "#" + P[i].id;
     }
     function stopAttract() { attract = false; clearTimeout(attractTimer); }
@@ -604,7 +576,7 @@
         <button aria-pressed="${j === k}" data-j="${j}" aria-label="${n}" data-cursor="play">
           ${img(`assets/ember/skills/${f}.webp`, "")}<span>${j + 1}</span><i class="bar"></i>
         </button>`).join("");
-      $$("button", thumbs).forEach((b) => b.addEventListener("click", () => { k = +b.dataset.j; load(); blip(700, 0.04); }));
+      $$("button", thumbs).forEach((b) => b.addEventListener("click", () => { k = +b.dataset.j; load(); }));
     }
     function pick(i) {
       s = i; k = 0;
@@ -612,7 +584,7 @@
       buildThumbs(); load();
     }
     tabs.forEach((b, i) => {
-      b.addEventListener("click", () => { pick(i); blip(480 + i * 70, 0.05); });
+      b.addEventListener("click", () => pick(i));
       b.addEventListener("keydown", (e) => {
         const cols = desktop() ? 1 : 3;
         let n = null;
@@ -656,9 +628,8 @@
       });
       set(st, true);
     }
-    function set(n, silent) {
+    function set(n) {
       n = Math.max(0, Math.min(3, n));
-      if (n !== st && !silent) blip(400 + n * 160, 0.06);
       st = n;
       imgs.forEach((im, j) => im.classList.toggle("on", j === n));
       marks.forEach((m, j) => m.classList.toggle("done", j <= n));
@@ -822,7 +793,6 @@
           if (j !== prev) s.style.clipPath = "inset(100% 0 0 0)";
         }
       });
-      if (prev >= 0) blip(300 + i * 120, 0.07, "triangle");
     }
     show(0);
     map.addEventListener("click", () => openLightbox([{ type: "img", src: G.floors[cur].map, cap: { en: `${G.floors[cur].tag} level map`, zh: `${G.floors[cur].tag} 关卡地图` } }]));
@@ -962,7 +932,6 @@
         last = front;
         nEl.textContent = front + 1;
         tEl.innerHTML = t(B.ring[front].t);
-        blip(220 + front * 40, 0.05, "sine", 0.05);
       }
     }
     layout();
@@ -1048,7 +1017,7 @@
     function type(text, done) {
       q.textContent = "";
       const chars = Array.from(text);
-      chars.forEach((ch, i) => timers.push(setTimeout(() => { q.textContent += ch; if (i % 3 === 0) blip(1400 + Math.random() * 300, 0.015, "sine", 0.02); }, reduced ? 0 : 38 * i)));
+      chars.forEach((ch, i) => timers.push(setTimeout(() => { q.textContent += ch; }, reduced ? 0 : 38 * i)));
       timers.push(setTimeout(done, reduced ? 1600 : 38 * chars.length + 1600));
     }
     function listen() {

@@ -138,7 +138,6 @@ html[lang="zh"] .h2 [data-l="zh"] { letter-spacing: .02em; font-weight: 700; }
 .lang { font-family: var(--f-pixel); font-size: 14px; }
 .lang b { font-weight: 400; color: var(--dim); }
 html[lang="en"] .lang .en, html[lang="zh"] .lang .zh { color: var(--accent); }
-.sfx[aria-pressed="false"] { color: var(--dim); }
 .back { gap: 10px !important; }
 
 /* ============ Home: stage ============ */
@@ -415,9 +414,9 @@ html[lang="zh"] .about__say { font-weight: 600; line-height: 1.35; letter-spacin
 .process .frame { aspect-ratio: 2.4 / 1; }
 
 /* Blind Loop: ring */
-.ring { position: relative; height: 100svh; overflow: hidden; display: grid; place-items: center; perspective: 1400px; touch-action: pan-y; cursor: grab; }
+.ring { position: relative; height: 100svh; overflow: hidden; display: grid; place-items: center; perspective: 1800px; touch-action: pan-y; cursor: grab; }
 .ring.dragging { cursor: grabbing; }
-.ring__spin { position: relative; width: clamp(240px, 30vw, 440px); aspect-ratio: 16 / 10; transform-style: preserve-3d; }
+.ring__spin { position: relative; width: min(58vw, 940px, calc((100svh - 300px) * 16 / 9)); max-width: 100%; aspect-ratio: 16 / 9; transform-style: preserve-3d; margin-bottom: 110px; }
 .ring__item { position: absolute; inset: 0; backface-visibility: hidden; display: grid; gap: 10px; }
 .ring__item .frame { height: 100%; box-shadow: 0 0 0 1px rgba(255,51,85,.25); }
 .ring__item .frame img { position: absolute; inset: 0; }
@@ -503,7 +502,7 @@ html[lang="zh"] .about__say { font-weight: 600; line-height: 1.35; letter-spacin
   .wordmark { white-space: nowrap; }
   .hud nav { gap: 0; }
   .hud nav a, .hud nav button { padding: 0 8px; }
-  .back .key, .sfx [data-l] { display: none !important; }
+  .back .key { display: none !important; }
   .stage__intro { top: 58%; }
   .stage__now { top: 44%; }
   .stage__keys .grp { display: none; }
@@ -525,6 +524,7 @@ html[lang="zh"] .about__say { font-weight: 600; line-height: 1.35; letter-spacin
   .hscroll__panel .frame { aspect-ratio: 16 / 9; }
   .process { grid-template-columns: 1fr; }
   .voice { grid-template-columns: 1fr; }
+  .ring__spin { width: 82vw; margin-bottom: 140px; }
   .stats { grid-template-columns: 1fr; }
   .screens, .aero-flow { grid-template-columns: 1fr; }
   .about__side { grid-template-columns: 1fr; }
